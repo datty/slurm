@@ -338,7 +338,6 @@ static int _cpu_type(int fd)
             cpu_type = 1;
         else if ((_read_msr(fd, MSR_AMD_RAPL_POWER_UNIT)) != 0)
             cpu_type = 2;
-        }
         return cpu_type;
 }
 
