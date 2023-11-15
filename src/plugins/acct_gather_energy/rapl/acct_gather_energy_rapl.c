@@ -198,7 +198,7 @@ static uint64_t _get_package_energy(int pkg, int cpu_type)
 	else if (cpu_type == 2)
 	    result = _read_msr(pkg_fd[pkg], MSR_AMD_PKG_ENERGY_STATUS);
 	else
-	    result = 0
+	    result = 0;
 	result &= 0xffffffff;
 	if (result < package_energy[pkg].i.low)
 		package_energy[pkg].i.high++;
