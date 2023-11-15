@@ -165,7 +165,7 @@ static char *_msr_string(int which)
 		case MSR_DRAM_ENERGY_STATUS:
 		    return "DRAM Energy Status";
 			break;
-		default
+		default:
 		    return "Unknown";
 	}
 }
