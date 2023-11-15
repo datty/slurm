@@ -146,11 +146,28 @@ extern void acct_gather_energy_p_conf_set(
 
 static char *_msr_string(int which)
 {
-	if ((which == MSR_RAPL_POWER_UNIT) || (which == MSR_AMD_RAPL_POWER_UNIT))
-		return "PowerUnit";
-	else if (which == MSR_PKG_POWER_INFO)
-		return "PowerInfo";
-	return "UnknownType";
+	switch(which) {
+		case MSR_RAPL_POWER_UNIT:
+		    return "Intel PowerUnit";
+			break;
+		case MSR_AMD_RAPL_POWER_UNIT:
+		    return "AMD PowerUnit";
+			break;
+		case MSR_PKG_POWER_INFO:
+		    return "Intel PowerInfo";
+			break;
+		case MSR_PKG_ENERGY_STATUS:
+		    return "Intel Package Energy Status";
+			break;
+		case MSR_AMD_PKG_ENERGY_STATUS:
+		    return "AMD Package Energy Status";
+			break;
+		case MSR_DRAM_ENERGY_STATUS:
+		    return "DRAM Energy Status";
+			break;
+		default
+		    return "Unknown";
+	}
 }
 
 static uint64_t _read_msr(int fd, int which)
