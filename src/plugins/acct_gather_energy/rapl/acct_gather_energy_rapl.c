@@ -144,7 +144,7 @@ static stepd_step_rec_t *step = NULL;
 extern void acct_gather_energy_p_conf_set(
 	int context_id_in, s_p_hashtbl_t *tbl);
 
-static char *_msr_string(int which)
+static char *_msr_string(uint32_t which)
 {
 	switch(which) {
 		case MSR_RAPL_POWER_UNIT:
@@ -170,7 +170,7 @@ static char *_msr_string(int which)
 	}
 }
 
-static uint64_t _read_msr(int fd, int which)
+static uint64_t _read_msr(int fd, uint32_t which)
 {
 	uint64_t data = 0;
 	static bool first = true;
@@ -334,9 +334,9 @@ static int _cpu_type(int fd)
         int cpu_type = 0;
         uint64_t data = 0;
 
-        if ((lseek(fd, MSR_RAPL_POWER_UNIT, SEEK_SET) >= 0) && (read(fd, &data, sizeof(data)) == sizeof(data)))
+        if ((_read_msr(fd, MSR_RAPL_POWER_UNIT)) != 0)
             cpu_type = 1;
-        else if ((lseek(fd, MSR_AMD_RAPL_POWER_UNIT, SEEK_SET) >= 0) && (read(fd, &data, sizeof(data)) == sizeof(data))) {
+        else if ((_read_msr(fd, MSR_AMD_RAPL_POWER_UNIT)) != 0)
             cpu_type = 2;
         }
         return cpu_type;
