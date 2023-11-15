@@ -69,18 +69,18 @@
 
 #define MAX_PKGS        256
 
-#define MSR_RAPL_POWER_UNIT             0x606
-#define MSR_AMD_RAPL_POWER_UNIT         0xc0010299
+#define MSR_RAPL_POWER_UNIT             0x606 /* AMD Version Available, used in _get_joules_task and acct_gather_energy_p_conf_set */
+#define MSR_AMD_RAPL_POWER_UNIT         0xc0010299 /* AMD EPYC Specific */
 
 /* Package RAPL Domain */
-#define MSR_PKG_RAPL_POWER_LIMIT        0x610
-#define MSR_PKG_ENERGY_STATUS           0x611
-#define MSR_PKG_PERF_STATUS             0x613
-#define MSR_PKG_POWER_INFO              0x614
+#define MSR_PKG_RAPL_POWER_LIMIT        0x610 /* Not Used */
+#define MSR_PKG_ENERGY_STATUS           0x611 /* AMD Version Available, used in _get_package_energy */
+#define MSR_AMD_PKG_ENERGY_STATUS       0xc001029b /* AMD EPYC Specific */
+#define MSR_PKG_PERF_STATUS             0x613 /* Not Used */
+#define MSR_PKG_POWER_INFO              0x614 /* used in _get_joules_task for debug only? */
 
 /* AMD Package RAPL Domain */
 #define MSR_AMD_CORE_ENERGY_STATUS      0xc001029a
-#define MSR_AMD_PKG_ENERGY_STATUS       0xc001029b
 
 /* DRAM RAPL Domain */
 #define MSR_DRAM_POWER_LIMIT            0x618
@@ -146,7 +146,7 @@ extern void acct_gather_energy_p_conf_set(
 
 static char *_msr_string(int which)
 {
-	if (which == MSR_RAPL_POWER_UNIT)
+	if ((which == MSR_RAPL_POWER_UNIT) || (which == MSR_AMD_RAPL_POWER_UNIT))
 		return "PowerUnit";
 	else if (which == MSR_PKG_POWER_INFO)
 		return "PowerInfo";
@@ -177,7 +177,7 @@ static uint64_t _read_msr(int fd, int which)
 	return data;
 }
 
-static uint64_t _get_package_energy(int pkg)
+static uint64_t _get_package_energy(int pkg, int cpu_type)
 {
 	uint64_t result;
 
@@ -187,8 +187,18 @@ static uint64_t _get_package_energy(int pkg)
 	 * Reserved - bits 63:32
 	 * See: Intel 64 and IA-32 Architectures Software Developer's
 	 * Manual, Volume 3 for details
+	 *
+	 * MSR_AMD_PKG_ENERGY_STATUS
+	 * Total Energy Consumed - bits 31:0 Lo/Hi_Count Register Value
+	 * See: Preliminary Processor Programming Reference (PPR)
+         * for AMD Family 19h, Volume 3 of 6
 	 */
-	result = _read_msr(pkg_fd[pkg], MSR_PKG_ENERGY_STATUS);
+	if (cpu_type == 1)
+	    result = _read_msr(pkg_fd[pkg], MSR_PKG_ENERGY_STATUS);
+	else if (cpu_type == 2)
+	    result = _read_msr(pkg_fd[pkg], MSR_AMD_PKG_ENERGY_STATUS);
+	else
+	    result = 0
 	result &= 0xffffffff;
 	if (result < package_energy[pkg].i.low)
 		package_energy[pkg].i.high++;
@@ -237,6 +247,24 @@ static int _open_msr(int core)
 	}
 
 	return fd;
+}
+
+static int _cpu_type(int fd)
+{
+        /* Get CPU Type
+          Intel = 1
+          AMD = 2
+          Unknown = 0
+        */
+        int cpu_type = 0;
+        uint64_t data = 0;
+
+        if ((lseek(fd, MSR_RAPL_POWER_UNIT, SEEK_SET) >= 0) && (read(fd, &data, sizeof(data)) == sizeof(data)))
+            cpu_type = 1;
+        else if ((lseek(fd, MSR_AMD_RAPL_POWER_UNIT, SEEK_SET) >= 0) && (read(fd, &data, sizeof(data)) == sizeof(data))) {
+            cpu_type = 2;
+        }
+        return cpu_type;
 }
 
 static void _hardware(void)
@@ -310,10 +338,18 @@ static void _get_joules_task(acct_gather_energy_t *energy)
 	uint64_t result;
 	double ret;
 	static uint32_t readings = 0;
+	int cpu_type;
 
 	if (pkg_fd[0] < 0) {
 		error("%s: device /dev/cpu/#/msr not opened "
 		      "energy data cannot be collected.", __func__);
+		_send_drain_request();
+		return;
+	}
+
+	cpu_type = _cpu_type(pkg_fd[0]);
+	if (cpu_type == 0) {
+		error("Unable to detect CPU Type based on PowerUnit MSR. energy data cannot be collected.");
 		_send_drain_request();
 		return;
 	}
@@ -325,8 +361,19 @@ static void _get_joules_task(acct_gather_energy_t *energy)
 	 * Time Units - bits 19:16
 	 * See: Intel 64 and IA-32 Architectures Software Developer's
 	 * Manual, Volume 3 for details
+	 *
+	 * MSR_AMD_RAPL_POWER_UNIT
+	 * Energy Status Units - bits 12:8
+	 * Time Units - bits 19:16
+	 * See: Preliminary Processor Programming Reference (PPR)
+     * for AMD Family 19h, Volume 3 of 6
 	 */
-	result = _read_msr(pkg_fd[0], MSR_RAPL_POWER_UNIT);
+	if (cpu_type == 1)
+	    result = _read_msr(pkg_fd[0], MSR_RAPL_POWER_UNIT);
+	else if (cpu_type == 2)
+	    result = _read_msr(pkg_fd[0], MSR_AMD_RAPL_POWER_UNIT);
+	else
+	    result = 0;
 	energy_units = pow(0.5, (double)((result>>8)&0x1f));
 
 	if (slurm_conf.debug_flags & DEBUG_FLAG_ENERGY) {
@@ -344,14 +391,16 @@ static void _get_joules_task(acct_gather_energy_t *energy)
 		 * See: Intel 64 and IA-32 Architectures Software Developer's
 		 * Manual, Volume 3 for details
 		 */
-		result = _read_msr(pkg_fd[0], MSR_PKG_POWER_INFO);
-		max_power = power_units * ((result >> 32) & 0x7fff);
-		info("RAPL Max power = %ld w", max_power);
+		if (cpu_type == 1) { 
+		    result = _read_msr(pkg_fd[0], MSR_PKG_POWER_INFO);
+		    max_power = power_units * ((result >> 32) & 0x7fff);
+		    info("RAPL Max power = %ld w", max_power);
+		}
 	}
 
 	result = 0;
 	for (i = 0; i < nb_pkg; i++)
-		result += _get_package_energy(i) + _get_dram_energy(i);
+		result += _get_package_energy(i,cpu_type) + _get_dram_energy(i);
 
 	ret = (double)result * energy_units;
 
