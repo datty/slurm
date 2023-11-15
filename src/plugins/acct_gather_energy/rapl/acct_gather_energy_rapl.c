@@ -225,6 +225,64 @@ static uint64_t _get_dram_energy(int pkg)
 	return(dram_energy[pkg].val);
 }
 
+static double _get_energy_units(int pkg, int cpu_type)
+{
+	uint64_t result;
+	double energy_units;
+
+	/*
+	 * MSR_RAPL_POWER_UNIT
+	 * Power Units - bits 3:0
+	 * Energy Status Units - bits 12:8
+	 * Time Units - bits 19:16
+	 * See: Intel 64 and IA-32 Architectures Software Developer's
+	 * Manual, Volume 3 for details
+	 *
+	 * MSR_AMD_RAPL_POWER_UNIT
+	 * Energy Status Units - bits 12:8
+	 * Time Units - bits 19:16
+	 * See: Preliminary Processor Programming Reference (PPR)
+     * for AMD Family 19h, Volume 3 of 6
+	 */
+	if (cpu_type == 1)
+	    result = _read_msr(pkg_fd[0], MSR_RAPL_POWER_UNIT);
+	else if (cpu_type == 2)
+	    result = _read_msr(pkg_fd[0], MSR_AMD_RAPL_POWER_UNIT);
+	else
+	    result = 0;
+	energy_units = pow(0.5, (double)((result>>8)&0x1f));
+	return energy_units;
+}
+
+static double _get_power_units(int pkg, int cpu_type)
+{
+	uint64_t result;
+	double power_units;
+
+	/*
+	 * MSR_RAPL_POWER_UNIT
+	 * Power Units - bits 3:0
+	 * Energy Status Units - bits 12:8
+	 * Time Units - bits 19:16
+	 * See: Intel 64 and IA-32 Architectures Software Developer's
+	 * Manual, Volume 3 for details
+	 *
+	 * MSR_AMD_RAPL_POWER_UNIT
+	 * Energy Status Units - bits 12:8
+	 * Time Units - bits 19:16
+	 * See: Preliminary Processor Programming Reference (PPR)
+     * for AMD Family 19h, Volume 3 of 6
+	 */
+	if (cpu_type == 1)
+	    result = _read_msr(pkg_fd[0], MSR_RAPL_POWER_UNIT);
+	else if (cpu_type == 2)
+	    result = _read_msr(pkg_fd[0], MSR_AMD_RAPL_POWER_UNIT);
+	else
+	    result = 0;
+	double power_units = pow(0.5, (double)(result&0xf));
+	return power_units;
+}
+
 static int _open_msr(int core)
 {
 	char msr_filename[BUFSIZ];
@@ -354,30 +412,10 @@ static void _get_joules_task(acct_gather_energy_t *energy)
 		return;
 	}
 
-	/*
-	 * MSR_RAPL_POWER_UNIT
-	 * Power Units - bits 3:0
-	 * Energy Status Units - bits 12:8
-	 * Time Units - bits 19:16
-	 * See: Intel 64 and IA-32 Architectures Software Developer's
-	 * Manual, Volume 3 for details
-	 *
-	 * MSR_AMD_RAPL_POWER_UNIT
-	 * Energy Status Units - bits 12:8
-	 * Time Units - bits 19:16
-	 * See: Preliminary Processor Programming Reference (PPR)
-     * for AMD Family 19h, Volume 3 of 6
-	 */
-	if (cpu_type == 1)
-	    result = _read_msr(pkg_fd[0], MSR_RAPL_POWER_UNIT);
-	else if (cpu_type == 2)
-	    result = _read_msr(pkg_fd[0], MSR_AMD_RAPL_POWER_UNIT);
-	else
-	    result = 0;
-	energy_units = pow(0.5, (double)((result>>8)&0x1f));
+	energy_units = _get_energy_units(pkg_fd[0], cpu_type);
 
 	if (slurm_conf.debug_flags & DEBUG_FLAG_ENERGY) {
-		double power_units = pow(0.5, (double)(result&0xf));
+		double power_units = _get_power_units(pkg_fd[0], cpu_type);
 		unsigned long max_power;
 
 		info("RAPL powercapture_debug Energy units = %.6f, "
@@ -624,7 +662,6 @@ extern void acct_gather_energy_p_conf_set(int context_id_in,
 					  s_p_hashtbl_t *tbl)
 {
 	int i;
-	uint64_t result;
 
 	if (!running_in_slurmd_stepd())
 		return;
@@ -639,9 +676,11 @@ extern void acct_gather_energy_p_conf_set(int context_id_in,
 
 	local_energy = acct_gather_energy_alloc(1);
 
-	result = _read_msr(pkg_fd[0], MSR_RAPL_POWER_UNIT);
-	if (result == 0)
+    cpu_type = _cpu_type(pkg_fd[0]);
+	if (cpu_type == 0) {
+		error("Unable to detect CPU Type based on PowerUnit MSR. energy data cannot be collected.");
 		local_energy->current_watts = NO_VAL;
+	}
 
 	debug("%s loaded", plugin_name);
 
