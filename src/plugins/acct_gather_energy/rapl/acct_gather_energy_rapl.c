@@ -279,7 +279,7 @@ static double _get_power_units(int pkg, int cpu_type)
 	    result = _read_msr(pkg_fd[0], MSR_AMD_RAPL_POWER_UNIT);
 	else
 	    result = 0;
-	double power_units = pow(0.5, (double)(result&0xf));
+    power_units = pow(0.5, (double)(result&0xf));
 	return power_units;
 }
 
@@ -676,7 +676,7 @@ extern void acct_gather_energy_p_conf_set(int context_id_in,
 
 	local_energy = acct_gather_energy_alloc(1);
 
-    cpu_type = _cpu_type(pkg_fd[0]);
+    int cpu_type = _cpu_type(pkg_fd[0]);
 	if (cpu_type == 0) {
 		error("Unable to detect CPU Type based on PowerUnit MSR. energy data cannot be collected.");
 		local_energy->current_watts = NO_VAL;
