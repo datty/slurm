@@ -69,15 +69,15 @@
 
 #define MAX_PKGS        256
 
-#define MSR_RAPL_POWER_UNIT             0x606 /* AMD Version Available, used in _get_joules_task and acct_gather_energy_p_conf_set */
-#define MSR_AMD_RAPL_POWER_UNIT         0xc0010299 /* AMD EPYC Specific */
+#define MSR_RAPL_POWER_UNIT             0x606
+#define MSR_AMD_RAPL_POWER_UNIT         0xc0010299
 
 /* Package RAPL Domain */
-#define MSR_PKG_RAPL_POWER_LIMIT        0x610 /* Not Used */
-#define MSR_PKG_ENERGY_STATUS           0x611 /* AMD Version Available, used in _get_package_energy */
-#define MSR_AMD_PKG_ENERGY_STATUS       0xc001029b /* AMD EPYC Specific */
-#define MSR_PKG_PERF_STATUS             0x613 /* Not Used */
-#define MSR_PKG_POWER_INFO              0x614 /* used in _get_joules_task for debug only? */
+#define MSR_PKG_RAPL_POWER_LIMIT        0x610
+#define MSR_PKG_ENERGY_STATUS           0x611
+#define MSR_AMD_PKG_ENERGY_STATUS       0xc001029b
+#define MSR_PKG_PERF_STATUS             0x613
+#define MSR_PKG_POWER_INFO              0x614
 
 /* AMD Package RAPL Domain */
 #define MSR_AMD_CORE_ENERGY_STATUS      0xc001029a
@@ -334,10 +334,16 @@ static int _cpu_type(int fd)
         int cpu_type = 0;
         uint64_t data = 0;
 
-        if ((_read_msr(fd, MSR_RAPL_POWER_UNIT)) != 0)
-            cpu_type = 1;
-        else if ((_read_msr(fd, MSR_AMD_RAPL_POWER_UNIT)) != 0)
-            cpu_type = 2;
+        if ((lseek(fd, MSR_RAPL_POWER_UNIT, SEEK_SET) >= 0) && (read(fd, &data, sizeof(data)) == sizeof(data))) {
+			debug("CPU RAPL detected as: Intel");
+			cpu_type = 1;
+		}
+        else if ((lseek(fd, MSR_AMD_RAPL_POWER_UNIT, SEEK_SET) >= 0) && (read(fd, &data, sizeof(data)) == sizeof(data))) {
+			debug("CPU RAPL detected as: AMD");
+			cpu_type = 2;
+		}
+		else
+		    debug("Unable to detect CPU RAPL");
         return cpu_type;
 }
 
@@ -423,7 +429,8 @@ static void _get_joules_task(acct_gather_energy_t *energy)
 
 	cpu_type = _cpu_type(pkg_fd[0]);
 	if (cpu_type == 0) {
-		error("Unable to detect CPU Type based on PowerUnit MSR. energy data cannot be collected.");
+		error("%s: Unable to detect CPU Type based on PowerUnit MSR. "
+		      "energy data cannot be collected.", __func__);
 		_send_drain_request();
 		return;
 	}
@@ -694,7 +701,8 @@ extern void acct_gather_energy_p_conf_set(int context_id_in,
 
     int cpu_type = _cpu_type(pkg_fd[0]);
 	if (cpu_type == 0) {
-		error("Unable to detect CPU Type based on PowerUnit MSR. energy data cannot be collected.");
+		error("%s: Unable to detect CPU Type based on PowerUnit MSR. "
+		      "energy data cannot be collected.", __func__);
 		local_energy->current_watts = NO_VAL;
 	}
 
